@@ -9,7 +9,6 @@ from datetime import datetime
 
 st.set_page_config(page_title="Sistema de Grabaciones Claro", layout="wide", page_icon="📶")
 
-# Acceso a Tokens
 DROPBOX_TOKEN = st.secrets.get("DROPBOX_TOKEN", "")
 
 RUTA_DROPBOX_TOTAL = "/CLARO/VENTAS - CLARO/SISTEMA_VENTAS_CLARO/total_grabaciones_claro.xlsx"
@@ -38,7 +37,8 @@ def descargar_archivo_dropbox(ruta):
     try:
         _, res = dbx.files_download(ruta)
         return res.content
-    except Exception:
+    except Exception as e:
+        st.error(f"❌ Error descargando archivo de Dropbox ({ruta}): {e}")
         return None
 
 def subir_archivo_dropbox(contenido, ruta):
@@ -69,10 +69,9 @@ def descargar_excel_base():
             nombre_hoja = xls.sheet_names[0]
             df = pd.read_excel(xls, sheet_name=nombre_hoja, dtype=str).fillna('')
             
-            # Limpiar nombres de columnas eliminando espacios invisibles
+            # Normalizar nombres de columnas
             df.columns = [str(col).strip() for col in df.columns]
             
-            # Asegurar que existan todos los campos requeridos
             columnas_auditoria = ['USUARIO_MODIFICACION', 'FECHA_MODIFICACION']
             for col in CAMPOS_FORMULARIO + columnas_auditoria:
                 if col not in df.columns:
@@ -80,9 +79,9 @@ def descargar_excel_base():
                     
             return df
         except Exception as e:
-            st.error(f"Error al procesar el Excel en Dropbox: {e}")
-            return pd.DataFrame(columns=CAMPOS_FORMULARIO)
-    return pd.DataFrame(columns=CAMPOS_FORMULARIO)
+            st.error(f"❌ Error al procesar el Excel en Dropbox: {e}")
+            return pd.DataFrame()
+    return pd.DataFrame()
 
 def guardar_base_con_reintentos(nuevo_registro, modo, usuario_actual, max_reintentos=3):
     fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -143,7 +142,7 @@ def cargar_opciones_config():
         config['MOTIVO_PENALIDAD'] = obtener_lista('MOTIVO_PENALIDAD', 'MOTIVO_PENALIDAD')
     return config
 
-# Control de Sesión
+# Dynamic Session Login State
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
@@ -188,6 +187,15 @@ opciones_combos = cargar_opciones_config()
 
 if menu_sel == "Gestión de Grabaciones":
     st.title("📹 Registro y Edición de SOTs")
+
+    # Módulo de Diagnóstico en tiempo real
+    with st.expander("🔍 Diagnóstico de Carga de Dropbox (Haz clic aquí si no ves registros)"):
+        st.write(f"**Filas leídas del Excel:** {len(df_base)}")
+        if not df_base.empty:
+            st.write("**Primeras 3 columnas leídas:**", list(df_base.columns)[:5])
+            st.write("**Muestra de datos en columna SOT:**", df_base['SOT'].dropna().head(5).tolist() if 'SOT' in df_base.columns else "Columna SOT no encontrada")
+        else:
+            st.error("El archivo devolvió 0 filas. Revisa la ruta de Dropbox o el contenido del Excel.")
     
     modo = st.radio("Acción:", ["Actualizar Registro Existente", "Crear Nuevo Registro"], horizontal=True)
 
@@ -199,9 +207,9 @@ if menu_sel == "Gestión de Grabaciones":
         
         sot_busqueda = st.sidebar.text_input("Buscar por SOT:")
         
-        # Cargar Zonales de forma segura desde la columna ZONAL_VDD
+        # Cargar Zonales
         if 'ZONAL_VDD' in df_base.columns:
-            zonales_unicos = [str(z).strip() for z in df_base['ZONAL_VDD'].unique() if str(z).strip() and str(z).lower() != 'nan']
+            zonales_unicos = [str(z).strip() for z in df_base['ZONAL_VDD'].unique() if str(z).strip() and str(z).lower() not in ['nan', '', 'none']]
             zonales = ["TODAS"] + sorted(list(set(zonales_unicos)))
         else:
             zonales = ["TODAS"]
@@ -210,7 +218,7 @@ if menu_sel == "Gestión de Grabaciones":
         fec_venta_filtro = st.sidebar.text_input("Filtrar por Fecha Venta (FEC_GEN_SOT):", placeholder="Ej: 2026-02-15")
         fec_inst_filtro = st.sidebar.text_input("Filtrar por Fecha Instalación:", placeholder="Ej: 2026-02-20")
 
-        # Aplicar Filtros ÚNICAMENTE si contienen texto (Filtros Opcionales)
+        # Aplicar Filtros Opcionales
         if sot_busqueda.strip():
             df_filtrado = df_filtrado[df_filtrado['SOT'].astype(str).str.contains(sot_busqueda.strip(), case=False, na=False)]
             
@@ -223,16 +231,18 @@ if menu_sel == "Gestión de Grabaciones":
         if fec_inst_filtro.strip():
             df_filtrado = df_filtrado[df_filtrado['FECHA_INSTALACION'].astype(str).str.contains(fec_inst_filtro.strip(), case=False, na=False)]
 
-        # Limpieza de la lista de SOTs a mostrar
-        lista_sots = df_filtrado['SOT'].astype(str).str.strip().tolist()
-        lista_sots = [s for s in lista_sots if s and s.lower() != 'nan' and s.lower() != 'none']
+        # Extraer lista de SOTs validando cualquier tipo de formato
+        if 'SOT' in df_filtrado.columns:
+            lista_sots = [str(s).strip() for s in df_filtrado['SOT'].tolist() if str(s).strip() and str(s).lower() not in ['nan', '', 'none', 'null']]
+        else:
+            lista_sots = []
 
         if lista_sots:
             sot_sel = st.selectbox("Seleccione la SOT a actualizar:", lista_sots)
             registro_actual = df_base[df_base['SOT'].astype(str).str.strip() == sot_sel].iloc[0].to_dict()
             st.caption(f"Última edición por: {registro_actual.get('USUARIO_MODIFICACION', 'N/A')} el {registro_actual.get('FECHA_MODIFICACION', 'N/A')}")
         else:
-            st.warning("⚠️ No hay SOTs disponibles para mostrar. Revisa que tu Excel en Dropbox tenga datos en la columna 'SOT'.")
+            st.warning("⚠️ No hay SOTs disponibles para mostrar con los filtros o en la base actual.")
             st.stop()
 
     def combo_box(label, key_combo, val_actual):
