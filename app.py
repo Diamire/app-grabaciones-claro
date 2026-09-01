@@ -9,6 +9,7 @@ from datetime import datetime
 
 st.set_page_config(page_title="Sistema de Grabaciones Claro", layout="wide", page_icon="📶")
 
+# Acceso a Tokens
 DROPBOX_TOKEN = st.secrets.get("DROPBOX_TOKEN", "")
 
 RUTA_DROPBOX_TOTAL = "/CLARO/VENTAS - CLARO/SISTEMA_VENTAS_CLARO/total_grabaciones_claro.xlsx"
@@ -60,10 +61,6 @@ def cargar_usuarios():
         }
     }
 
-def guardar_usuarios(usuarios):
-    contenido = json.dumps(usuarios, indent=4).encode('utf-8')
-    return subir_archivo_dropbox(contenido, RUTA_DROPBOX_USUARIOS)
-
 def descargar_excel_base():
     content = descargar_archivo_dropbox(RUTA_DROPBOX_TOTAL)
     if content:
@@ -71,8 +68,11 @@ def descargar_excel_base():
             xls = pd.ExcelFile(io.BytesIO(content))
             nombre_hoja = xls.sheet_names[0]
             df = pd.read_excel(xls, sheet_name=nombre_hoja, dtype=str).fillna('')
+            
+            # Limpiar nombres de columnas eliminando espacios accidentales
             df.columns = [str(col).strip() for col in df.columns]
             
+            # Asegurar que existan todos los campos
             columnas_auditoria = ['USUARIO_MODIFICACION', 'FECHA_MODIFICACION']
             for col in CAMPOS_FORMULARIO + columnas_auditoria:
                 if col not in df.columns:
@@ -80,7 +80,7 @@ def descargar_excel_base():
                     
             return df
         except Exception as e:
-            st.error(f"Error al procesar la base de Excel: {e}")
+            st.error(f"Error al procesar el Excel en Dropbox: {e}")
             return pd.DataFrame(columns=CAMPOS_FORMULARIO)
     return pd.DataFrame(columns=CAMPOS_FORMULARIO)
 
@@ -143,17 +143,16 @@ def cargar_opciones_config():
         config['MOTIVO_PENALIDAD'] = obtener_lista('MOTIVO_PENALIDAD', 'MOTIVO_PENALIDAD')
     return config
 
-# Control de sesión
+# Dynamic Session Login State
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
     st.session_state.nombre = ""
     st.session_state.rol = ""
-    st.session_state.mostrar_bienvenida = False
 
 if not st.session_state.logged_in:
     st.markdown("<h2 style='text-align: center;'>📶 Sistema de Grabaciones Claro</h2>", unsafe_allow_html=True)
-    st.markdown("<p style='text-align: center; color: gray;'>Ingrese sus credenciales de acceso</p>", unsafe_allow_html=True)
+    st.markdown("<p style='text-align: center; color: gray;'>Ingrese sus credenciales</p>", unsafe_allow_html=True)
     
     col1, col2, col3 = st.columns([1, 2, 1])
     with col2:
@@ -169,32 +168,21 @@ if not st.session_state.logged_in:
                     st.session_state.username = user_input
                     st.session_state.nombre = usuarios_db[user_input]["nombre"]
                     st.session_state.rol = usuarios_db[user_input]["rol"]
-                    st.session_state.mostrar_bienvenida = True
                     st.rerun()
                 else:
                     st.error("❌ DNI o contraseña incorrectos.")
     st.stop()
-
-if st.session_state.mostrar_bienvenida:
-    st.success(f"🎉 ¡Bienvenido(a), **{st.session_state.nombre}**!")
-    st.session_state.mostrar_bienvenida = False
 
 st.sidebar.markdown(f"### 👤 Usuario Activo")
 st.sidebar.info(f"**Nombre:** {st.session_state.nombre}\n\n**DNI:** {st.session_state.username}\n\n**Rol:** `{st.session_state.rol.upper()}`")
 
 if st.sidebar.button("🚪 Cerrar Sesión", use_container_width=True):
     st.session_state.logged_in = False
-    st.session_state.username = ""
-    st.session_state.nombre = ""
-    st.session_state.rol = ""
-    st.session_state.mostrar_bienvenida = False
     st.rerun()
 
 opciones_menu = ["Gestión de Grabaciones", "📊 Estadísticas y Reportes"]
-if st.session_state.rol == "admin":
-    opciones_menu.append("⚙️ Administración de Usuarios")
-
 menu_sel = st.sidebar.radio("Menú Principal:", opciones_menu)
+
 df_base = descargar_excel_base()
 opciones_combos = cargar_opciones_config()
 
@@ -211,12 +199,16 @@ if menu_sel == "Gestión de Grabaciones":
         
         sot_busqueda = st.sidebar.text_input("Buscar por SOT:")
         
-        zonales = ["TODAS"] + sorted([str(z).strip() for z in df_base['ZONAL_VDD'].unique().tolist() if str(z).strip()])
+        # Obtener zonales de forma segura
+        zonales_unicos = [str(z).strip() for z in df_base['ZONAL_VDD'].unique() if str(z).strip()]
+        zonales = ["TODAS"] + sorted(list(set(zonales_unicos)))
+        
         zonal_filtro = st.sidebar.selectbox("Filtrar por Zonal:", zonales)
         
         fec_venta_filtro = st.sidebar.text_input("Filtrar por Fecha Venta (FEC_GEN_SOT):", placeholder="Ej: 2026-02-15")
         fec_inst_filtro = st.sidebar.text_input("Filtrar por Fecha Instalación:", placeholder="Ej: 2026-02-20")
 
+        # Aplicar Filtros
         if sot_busqueda:
             df_filtrado = df_filtrado[df_filtrado['SOT'].astype(str).str.contains(sot_busqueda.strip(), case=False, na=False)]
         if zonal_filtro != "TODAS":
@@ -232,9 +224,9 @@ if menu_sel == "Gestión de Grabaciones":
         if lista_sots:
             sot_sel = st.selectbox("Seleccione la SOT a actualizar:", lista_sots)
             registro_actual = df_base[df_base['SOT'].astype(str).str.strip() == sot_sel].iloc[0].to_dict()
-            st.caption(f"Última actualización registrada por: {registro_actual.get('USUARIO_MODIFICACION', 'N/A')} ({registro_actual.get('FECHA_MODIFICACION', 'N/A')})")
+            st.caption(f"Última edición por: {registro_actual.get('USUARIO_MODIFICACION', 'N/A')} el {registro_actual.get('FECHA_MODIFICACION', 'N/A')}")
         else:
-            st.warning("No se encontraron coincidencias con los filtros aplicados.")
+            st.warning("No se encontraron SOTs con los filtros seleccionados.")
             st.stop()
 
     def combo_box(label, key_combo, val_actual):
@@ -333,12 +325,5 @@ if menu_sel == "Gestión de Grabaciones":
 
 elif menu_sel == "📊 Estadísticas y Reportes":
     st.title("📊 Panel de Métricas")
-    df_stats = df_base.copy()
-    st.metric("Total SOTs Registradas", len(df_stats))
-    st.dataframe(df_stats, use_container_width=True)
-
-elif menu_sel == "⚙️ Administración de Usuarios":
-    st.title("⚙️ Gestión de Usuarios")
-    usuarios_db = cargar_usuarios()
-    tabla_user = [{"DNI / Usuario": u, "Nombre": v["nombre"], "Rol": v["rol"].upper()} for u, v in usuarios_db.items()]
-    st.dataframe(pd.DataFrame(tabla_user), use_container_width=True)
+    st.metric("Total SOTs Registradas", len(df_base))
+    st.dataframe(df_base, use_container_width=True)
