@@ -7,22 +7,29 @@ import json
 import hashlib
 from datetime import datetime
 
-# Configuración inicial de la página
 st.set_page_config(page_title="Sistema de Grabaciones Claro", layout="wide", page_icon="📶")
 
-# Clave de API de Dropbox desde las credenciales secretas
 DROPBOX_TOKEN = st.secrets.get("DROPBOX_TOKEN", "")
 
-# RUTAS EXACTAS EN TU DROPBOX
 RUTA_DROPBOX_TOTAL = "/CLARO/VENTAS - CLARO/SISTEMA_VENTAS_CLARO/total_grabaciones_claro.xlsx"
 RUTA_DROPBOX_CONFIG = "/CLARO/VENTAS - CLARO/SISTEMA_VENTAS_CLARO/configuracion de tabulacion v2.xlsx"
 RUTA_DROPBOX_USUARIOS = "/CLARO/VENTAS - CLARO/SISTEMA_VENTAS_CLARO/usuarios.json"
 
+CAMPOS_FORMULARIO = [
+    'SOT', 'FEC_GEN_SOT', 'FECHA_INSTALACION', 'FECHA_RECHAZO', 'FECHA_AGENDA', 
+    'PLAN', 'CARGO_FIJO_CON_IGV', 'DEPARTAMENTO_INSTALACION', 'DISTRITO_INSTALACION', 
+    'PROVINCIA_INSTALACION', 'CONTRATA', 'PUNTO_VENTA', 'DISTRIBUIDOR', 'ESTADO_CONTACTO', 
+    'TECNICO', 'FEC_PROGRAMACION_TOA', 'FRANJA', 'ESTADO_TOA', 'NUMERO_DE_SEC', 
+    'ARBITRAJE', 'SOT_INICIAL', 'TECNOLOGIA', 'DOC_VDD', 'NOMBRE_CLIENTE', 
+    'DOC_DE_CLIENTE', 'VELOCIDAD_PLAN_MBPS', 'NUMERO_DE_TELEFONO', 'CORREO_ELECTRONICO', 
+    'CORREO_CORRECTO', 'DIRECCION', 'TABULACION', 'TIPO_DE_DEV', 'MOTIVO_DE_DEV', 
+    'DETALLE_DE_DEV', 'VERIFICACION_BO', 'SOT_CORRECTA', 'LLAMADA _BO', 'RECUPERABLE', 
+    'OBSERVACION', 'MOTIVO_PENALIDAD', 'ALTAS', 'ZONAL_VDD', 'VENDEDOR_REAL', 
+    'SUPERVISOR', 'MODALIDAD_VDD'
+]
+
 dbx = dropbox.Dropbox(DROPBOX_TOKEN)
 
-# ---------------------------------------------------------
-# FUNCIONES AUXILIARES DE DROPBOX Y AUDITORÍA
-# ---------------------------------------------------------
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
@@ -30,7 +37,7 @@ def descargar_archivo_dropbox(ruta):
     try:
         _, res = dbx.files_download(ruta)
         return res.content
-    except Exception as e:
+    except Exception:
         return None
 
 def subir_archivo_dropbox(contenido, ruta):
@@ -66,30 +73,18 @@ def descargar_excel_base():
             df = pd.read_excel(xls, sheet_name=nombre_hoja, dtype=str).fillna('')
             df.columns = [str(col).strip() for col in df.columns]
             
-            campos_permitidos = [
-                'SOT', 'FEC_GEN_SOT', 'FECHA_INSTALACION', 'FECHA_RECHAZO', 'FECHA_AGENDA', 
-                'PLAN', 'CARGO_FIJO_CON_IGV', 'DEPARTAMENTO_INSTALACION', 'DISTRITO_INSTALACION', 
-                'PROVINCIA_INSTALACION', 'CONTRATA', 'PUNTO_VENTA', 'DISTRIBUIDOR', 'ESTADO_CONTACTO', 
-                'TECNICO', 'FEC_PROGRAMACION_TOA', 'FRANJA', 'ESTADO_TOA', 'NUMERO_DE_SEC', 
-                'ARBITRAJE', 'SOT_INICIAL', 'TECNOLOGIA', 'DOC_VDD', 'NOMBRE_CLIENTE', 
-                'DOC_DE_CLIENTE', 'VELOCIDAD_PLAN_MBPS', 'NUMERO_DE_TELEFONO', 'CORREO_ELECTRONICO', 
-                'CORREO_CORRECTO', 'DIRECCION', 'TABULACION', 'TIPO_DE_DEV', 'MOTIVO_DE_DEV', 
-                'DETALLE_DE_DEV', 'VERIFICACION_BO', 'SOT_CORRECTA', 'LLAMADA _BO', 'RECUPERABLE', 
-                'OBSERVACION', 'MOTIVO_PENALIDAD', 'ALTAS', 'ZONAL_VDD', 'VENDEDOR_REAL', 
-                'SUPERVISOR', 'MODALIDAD_VDD', 'USUARIO_MODIFICACION', 'FECHA_MODIFICACION'
-            ]
-            
-            for col in campos_permitidos:
+            columnas_auditoria = ['USUARIO_MODIFICACION', 'FECHA_MODIFICACION']
+            for col in CAMPOS_FORMULARIO + columnas_auditoria:
                 if col not in df.columns:
                     df[col] = ''
                     
             return df
         except Exception as e:
-            st.error(f"Error al procesar el archivo Excel: {e}")
-            return pd.DataFrame()
-    return pd.DataFrame()
+            st.error(f"Error al procesar la base de Excel: {e}")
+            return pd.DataFrame(columns=CAMPOS_FORMULARIO)
+    return pd.DataFrame(columns=CAMPOS_FORMULARIO)
 
-def guardar_base_con_reintentos(nuevo_registro, modo, usuario_actual, max_reintentos=5):
+def guardar_base_con_reintentos(nuevo_registro, modo, usuario_actual, max_reintentos=3):
     fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
     nuevo_registro['USUARIO_MODIFICACION'] = usuario_actual
     nuevo_registro['FECHA_MODIFICACION'] = fecha_actual
@@ -97,6 +92,9 @@ def guardar_base_con_reintentos(nuevo_registro, modo, usuario_actual, max_reinte
     for intento in range(max_reintentos):
         try:
             content = descargar_archivo_dropbox(RUTA_DROPBOX_TOTAL)
+            if not content:
+                return False, "No se pudo leer la base de Dropbox para guardar."
+            
             xls = pd.ExcelFile(io.BytesIO(content))
             nombre_hoja = xls.sheet_names[0]
             df_actual = pd.read_excel(xls, sheet_name=nombre_hoja, dtype=str).fillna('')
@@ -122,7 +120,7 @@ def guardar_base_con_reintentos(nuevo_registro, modo, usuario_actual, max_reinte
                 return True, "Registro guardado correctamente."
         except Exception as e:
             time.sleep(1)
-    return False, "El sistema estuvo ocupado por concurrencia. Intente nuevamente."
+    return False, "Error de concurrencia al actualizar. Por favor reintente."
 
 def cargar_opciones_config():
     content = descargar_archivo_dropbox(RUTA_DROPBOX_CONFIG)
@@ -145,9 +143,7 @@ def cargar_opciones_config():
         config['MOTIVO_PENALIDAD'] = obtener_lista('MOTIVO_PENALIDAD', 'MOTIVO_PENALIDAD')
     return config
 
-# ---------------------------------------------------------
-# CONTROL DE SESIÓN
-# ---------------------------------------------------------
+# Control de sesión
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
@@ -179,12 +175,8 @@ if not st.session_state.logged_in:
                     st.error("❌ DNI o contraseña incorrectos.")
     st.stop()
 
-# ---------------------------------------------------------
-# INTERFAZ PRINCIPAL
-# ---------------------------------------------------------
 if st.session_state.mostrar_bienvenida:
     st.success(f"🎉 ¡Bienvenido(a), **{st.session_state.nombre}**!")
-    st.balloons()
     st.session_state.mostrar_bienvenida = False
 
 st.sidebar.markdown(f"### 👤 Usuario Activo")
@@ -206,43 +198,43 @@ menu_sel = st.sidebar.radio("Menú Principal:", opciones_menu)
 df_base = descargar_excel_base()
 opciones_combos = cargar_opciones_config()
 
-# ---------------------------------------------------------
-# MÓDULO 1: GESTIÓN DE GRABACIONES
-# ---------------------------------------------------------
 if menu_sel == "Gestión de Grabaciones":
     st.title("📹 Registro y Edición de SOTs")
     
-    modo = st.radio("Acción:", ["Crear Nuevo Registro", "Actualizar Registro Existente"], horizontal=True)
+    modo = st.radio("Acción:", ["Actualizar Registro Existente", "Crear Nuevo Registro"], horizontal=True)
 
     df_filtrado = df_base.copy()
     registro_actual = {}
 
     if modo == "Actualizar Registro Existente":
-        st.sidebar.subheader("🔍 Buscar SOT")
-        zonales = ["TODAS"] + sorted([z for z in df_base['ZONAL_VDD'].unique().tolist() if str(z).strip()])
-        zonal_filtro = st.sidebar.selectbox("Zonal Vendedor:", zonales)
+        st.sidebar.subheader("🔍 Filtros de Búsqueda (AppSheet)")
         
-        tabulaciones = ["TODAS"] + opciones_combos.get('TABULACION', [])
-        tab_filtro = st.sidebar.selectbox("Tabulación:", tabulaciones)
+        sot_busqueda = st.sidebar.text_input("Buscar por SOT:")
         
-        sot_busqueda = st.sidebar.text_input("Buscar por número de SOT:")
+        zonales = ["TODAS"] + sorted([str(z).strip() for z in df_base['ZONAL_VDD'].unique().tolist() if str(z).strip()])
+        zonal_filtro = st.sidebar.selectbox("Filtrar por Zonal:", zonales)
+        
+        fec_venta_filtro = st.sidebar.text_input("Filtrar por Fecha Venta (FEC_GEN_SOT):", placeholder="Ej: 2026-02-15")
+        fec_inst_filtro = st.sidebar.text_input("Filtrar por Fecha Instalación:", placeholder="Ej: 2026-02-20")
 
-        if zonal_filtro != "TODAS":
-            df_filtrado = df_filtrado[df_filtrado['ZONAL_VDD'] == zonal_filtro]
-        if tab_filtro != "TODAS":
-            df_filtrado = df_filtrado[df_filtrado['TABULACION'] == tab_filtro]
         if sot_busqueda:
-            df_filtrado = df_filtrado[df_filtrado['SOT'].astype(str).str.contains(sot_busqueda, case=False, na=False)]
+            df_filtrado = df_filtrado[df_filtrado['SOT'].astype(str).str.contains(sot_busqueda.strip(), case=False, na=False)]
+        if zonal_filtro != "TODAS":
+            df_filtrado = df_filtrado[df_filtrado['ZONAL_VDD'].astype(str).str.strip() == zonal_filtro]
+        if fec_venta_filtro:
+            df_filtrado = df_filtrado[df_filtrado['FEC_GEN_SOT'].astype(str).str.contains(fec_venta_filtro.strip(), case=False, na=False)]
+        if fec_inst_filtro:
+            df_filtrado = df_filtrado[df_filtrado['FECHA_INSTALACION'].astype(str).str.contains(fec_inst_filtro.strip(), case=False, na=False)]
 
         lista_sots = df_filtrado['SOT'].astype(str).str.strip().tolist()
         lista_sots = [s for s in lista_sots if s]
 
         if lista_sots:
-            sot_sel = st.selectbox("Seleccione la SOT a consultar/modificar:", lista_sots)
+            sot_sel = st.selectbox("Seleccione la SOT a actualizar:", lista_sots)
             registro_actual = df_base[df_base['SOT'].astype(str).str.strip() == sot_sel].iloc[0].to_dict()
-            st.info(f"Última actualización por: **{registro_actual.get('USUARIO_MODIFICACION', 'N/A')}** el **{registro_actual.get('FECHA_MODIFICACION', 'N/A')}**")
+            st.caption(f"Última actualización registrada por: {registro_actual.get('USUARIO_MODIFICACION', 'N/A')} ({registro_actual.get('FECHA_MODIFICACION', 'N/A')})")
         else:
-            st.warning("No se encontraron SOTs con los filtros seleccionados.")
+            st.warning("No se encontraron coincidencias con los filtros aplicados.")
             st.stop()
 
     def combo_box(label, key_combo, val_actual):
@@ -339,64 +331,14 @@ if menu_sel == "Gestión de Grabaciones":
             else:
                 st.error(f"Error: {msj}")
 
-# ---------------------------------------------------------
-# MÓDULO 2: ESTADÍSTICAS Y RESÚMENES
-# ---------------------------------------------------------
 elif menu_sel == "📊 Estadísticas y Reportes":
-    st.title("📊 Panel de Métricas y Tabulaciones")
-    
+    st.title("📊 Panel de Métricas")
     df_stats = df_base.copy()
-    df_stats['ALTAS_NUM'] = pd.to_numeric(df_stats['ALTAS'], errors='coerce').fillna(0)
+    st.metric("Total SOTs Registradas", len(df_stats))
+    st.dataframe(df_stats, use_container_width=True)
 
-    kpi1, kpi2, kpi3 = st.columns(3)
-    kpi1.metric("Total SOTs Registradas", len(df_stats))
-    kpi2.metric("Total Altas", int(df_stats['ALTAS_NUM'].sum()))
-    kpi3.metric("Instalados", len(df_stats[df_stats['TABULACION'].str.upper() == 'INSTALADO']))
-
-    st.markdown("---")
-    st.subheader("📊 Resumen por Tabulación")
-    st.bar_chart(df_stats['TABULACION'].value_counts())
-
-    st.subheader("👥 Auditoría de Modificaciones por Usuario")
-    st.dataframe(
-        df_stats['USUARIO_MODIFICACION'].value_counts().reset_index().rename(
-            columns={'index': 'Usuario (DNI)', 'USUARIO_MODIFICACION': 'Registros / Ediciones'}
-        ),
-        use_container_width=True
-    )
-
-# ---------------------------------------------------------
-# MÓDULO 3: ADMINISTRACIÓN DE USUARIOS
-# ---------------------------------------------------------
 elif menu_sel == "⚙️ Administración de Usuarios":
-    st.title("⚙️ Gestión de Usuarios y Accesos")
+    st.title("⚙️ Gestión de Usuarios")
     usuarios_db = cargar_usuarios()
-
-    st.subheader("👥 Lista de Usuarios Activos")
     tabla_user = [{"DNI / Usuario": u, "Nombre": v["nombre"], "Rol": v["rol"].upper()} for u, v in usuarios_db.items()]
     st.dataframe(pd.DataFrame(tabla_user), use_container_width=True)
-
-    st.markdown("---")
-    st.subheader("➕ Registrar Nuevo Operador / Admin")
-    with st.form("form_nuevo_usuario"):
-        nuevo_user = st.text_input("DNI (Servirá como Usuario de Login)").strip()
-        nuevo_nombre = st.text_input("Nombre Completo del Usuario").strip()
-        nueva_pass = st.text_input("Contraseña Inicial", type="password").strip()
-        nuevo_rol = st.selectbox("Rol de Acceso", ["operador", "admin"])
-        btn_crear_user = st.form_submit_button("Crear Usuario", use_container_width=True)
-
-        if btn_crear_user:
-            if not nuevo_user or not nueva_pass or not nuevo_nombre:
-                st.error("Todos los campos son obligatorios.")
-            elif nuevo_user in usuarios_db:
-                st.error("El DNI/Usuario ya está registrado.")
-            else:
-                usuarios_db[nuevo_user] = {
-                    "password": hash_password(nueva_pass),
-                    "nombre": nuevo_nombre,
-                    "rol": nuevo_rol
-                }
-                if guardar_usuarios(usuarios_db):
-                    st.success(f"Usuario '{nuevo_nombre}' creado con éxito.")
-                    time.sleep(1)
-                    st.rerun()
