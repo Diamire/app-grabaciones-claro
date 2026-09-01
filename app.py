@@ -69,10 +69,10 @@ def descargar_excel_base():
             nombre_hoja = xls.sheet_names[0]
             df = pd.read_excel(xls, sheet_name=nombre_hoja, dtype=str).fillna('')
             
-            # Limpiar nombres de columnas eliminando espacios accidentales
+            # Limpiar nombres de columnas eliminando espacios invisibles
             df.columns = [str(col).strip() for col in df.columns]
             
-            # Asegurar que existan todos los campos
+            # Asegurar que existan todos los campos requeridos
             columnas_auditoria = ['USUARIO_MODIFICACION', 'FECHA_MODIFICACION']
             for col in CAMPOS_FORMULARIO + columnas_auditoria:
                 if col not in df.columns:
@@ -143,7 +143,7 @@ def cargar_opciones_config():
         config['MOTIVO_PENALIDAD'] = obtener_lista('MOTIVO_PENALIDAD', 'MOTIVO_PENALIDAD')
     return config
 
-# Dynamic Session Login State
+# Control de Sesión
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
     st.session_state.username = ""
@@ -199,34 +199,40 @@ if menu_sel == "Gestión de Grabaciones":
         
         sot_busqueda = st.sidebar.text_input("Buscar por SOT:")
         
-        # Obtener zonales de forma segura
-        zonales_unicos = [str(z).strip() for z in df_base['ZONAL_VDD'].unique() if str(z).strip()]
-        zonales = ["TODAS"] + sorted(list(set(zonales_unicos)))
-        
+        # Cargar Zonales de forma segura desde la columna ZONAL_VDD
+        if 'ZONAL_VDD' in df_base.columns:
+            zonales_unicos = [str(z).strip() for z in df_base['ZONAL_VDD'].unique() if str(z).strip() and str(z).lower() != 'nan']
+            zonales = ["TODAS"] + sorted(list(set(zonales_unicos)))
+        else:
+            zonales = ["TODAS"]
+            
         zonal_filtro = st.sidebar.selectbox("Filtrar por Zonal:", zonales)
-        
         fec_venta_filtro = st.sidebar.text_input("Filtrar por Fecha Venta (FEC_GEN_SOT):", placeholder="Ej: 2026-02-15")
         fec_inst_filtro = st.sidebar.text_input("Filtrar por Fecha Instalación:", placeholder="Ej: 2026-02-20")
 
-        # Aplicar Filtros
-        if sot_busqueda:
+        # Aplicar Filtros ÚNICAMENTE si contienen texto (Filtros Opcionales)
+        if sot_busqueda.strip():
             df_filtrado = df_filtrado[df_filtrado['SOT'].astype(str).str.contains(sot_busqueda.strip(), case=False, na=False)]
+            
         if zonal_filtro != "TODAS":
             df_filtrado = df_filtrado[df_filtrado['ZONAL_VDD'].astype(str).str.strip() == zonal_filtro]
-        if fec_venta_filtro:
+            
+        if fec_venta_filtro.strip():
             df_filtrado = df_filtrado[df_filtrado['FEC_GEN_SOT'].astype(str).str.contains(fec_venta_filtro.strip(), case=False, na=False)]
-        if fec_inst_filtro:
+            
+        if fec_inst_filtro.strip():
             df_filtrado = df_filtrado[df_filtrado['FECHA_INSTALACION'].astype(str).str.contains(fec_inst_filtro.strip(), case=False, na=False)]
 
+        # Limpieza de la lista de SOTs a mostrar
         lista_sots = df_filtrado['SOT'].astype(str).str.strip().tolist()
-        lista_sots = [s for s in lista_sots if s]
+        lista_sots = [s for s in lista_sots if s and s.lower() != 'nan' and s.lower() != 'none']
 
         if lista_sots:
             sot_sel = st.selectbox("Seleccione la SOT a actualizar:", lista_sots)
             registro_actual = df_base[df_base['SOT'].astype(str).str.strip() == sot_sel].iloc[0].to_dict()
             st.caption(f"Última edición por: {registro_actual.get('USUARIO_MODIFICACION', 'N/A')} el {registro_actual.get('FECHA_MODIFICACION', 'N/A')}")
         else:
-            st.warning("No se encontraron SOTs con los filtros seleccionados.")
+            st.warning("⚠️ No hay SOTs disponibles para mostrar. Revisa que tu Excel en Dropbox tenga datos en la columna 'SOT'.")
             st.stop()
 
     def combo_box(label, key_combo, val_actual):
