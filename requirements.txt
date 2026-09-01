@@ -1,7 +1,4 @@
-import pandas as pd
-import streamlit as st
-import dropbox
-import io
-import time
-import json
-import hashlib
+streamlit
+pandas
+openpyxl
+dropbox
