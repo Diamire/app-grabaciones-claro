@@ -61,10 +61,33 @@ def descargar_excel_base():
     content = descargar_archivo_dropbox(RUTA_DROPBOX_TOTAL)
     if content:
         df = pd.read_excel(io.BytesIO(content), sheet_name='Base', dtype=str).fillna('')
-        if 'USUARIO_MODIFICACION' not in df.columns:
-            df['USUARIO_MODIFICACION'] = ''
-        if 'FECHA_MODIFICACION' not in df.columns:
-            df['FECHA_MODIFICACION'] = ''
+        
+        # Limpiar espacios en los nombres de las columnas
+        df.columns = df.columns.str.strip()
+        
+        # Columnas obligatorias para evitar KeyErrors
+        columnas_requeridas = [
+            'SOT', 'ESTADO_SOT', 'FEC_GEN_SOT', 'FECHA_INSTALACION', 'FECHA_RECHAZO',
+            'FECHA_AGENDA', 'PLAN', 'SCORE_CREDITICIO', 'CARGO_FIJO_CON_IGV',
+            'USUARIO_VENDEDOR', 'ZONAL_VDD', 'VENDEDOR_REAL', 'SUPERVISOR',
+            'MODALIDAD_VDD', 'NOMBRE_CLIENTE', 'DOC_DE_CLIENTE', 'DOC_VDD',
+            'VELOCIDAD_PLAN_MBPS', 'NUMERO_DE_TELEFONO', 'CORREO_ELECTRONICO',
+            'CORREO_CORRECTO', 'DIRECCION', 'DEPARTAMENTO_INSTALACION',
+            'DISTRITO_INSTALACION', 'PROVINCIA_INSTALACION', 'COD_PLANO',
+            'CONTRATA', 'TABULACION', 'TIPO_DE_DEV', 'MOTIVO_DE_DEV',
+            'DETALLE_DE_DEV', 'VERIFICACION_BO', 'SOT_CORRECTA', 'LLAMADA _BO',
+            'RECUPERABLE', 'OBSERVACION', 'MOTIVO_PENALIDAD', 'PUNTO_VENTA',
+            'DISTRIBUIDOR', 'COORDINADOR', 'ESTADO_CONTACTO', 'TECNICO',
+            'FEC_PROGRAMACION_TOA', 'FRANJA', 'ESTADO_TOA', 'NUMERO_DE_SEC',
+            'ESTADO_FINAL', 'ARBITRAJE', 'SOT_INICIAL', 'TECNOLOGIA', 'VENTA',
+            'ALTAS', 'USUARIO_MODIFICACION', 'FECHA_MODIFICACION'
+        ]
+        
+        # Asegurar que todas las columnas existan aunque el Excel no las tenga
+        for col in columnas_requeridas:
+            if col not in df.columns:
+                df[col] = ''
+                
         return df
     return pd.DataFrame()
 
