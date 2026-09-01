@@ -11,9 +11,9 @@ st.set_page_config(page_title="Sistema de Grabaciones Claro", layout="wide", pag
 
 DROPBOX_TOKEN = st.secrets.get("DROPBOX_TOKEN", "")
 
-RUTA_DROPBOX_TOTAL = "/CLARO/VENTAS - CLARO/SISTEMA_VENTAS_CLARO/total_grabaciones_claro.xlsx"
-RUTA_DROPBOX_CONFIG = "/CLARO/VENTAS - CLARO/SISTEMA_VENTAS_CLARO/configuracion de tabulacion v2.xlsx"
-RUTA_DROPBOX_USUARIOS = "/CLARO/VENTAS - CLARO/SISTEMA_VENTAS_CLARO/usuarios.json"
+RUTA_DROPBOX_TOTAL = "/SISTEMA_VENTAS_CLARO/total_grabaciones_claro.xlsx"
+RUTA_DROPBOX_CONFIG = "/SISTEMA_VENTAS_CLARO/configuracion de tabulacion v2.xlsx"
+RUTA_DROPBOX_USUARIOS = "/SISTEMA_VENTAS_CLARO/usuarios.json"
 
 CAMPOS_FORMULARIO = [
     'SOT', 'FEC_GEN_SOT', 'FECHA_INSTALACION', 'FECHA_RECHAZO', 'FECHA_AGENDA', 
