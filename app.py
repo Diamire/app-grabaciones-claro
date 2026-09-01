@@ -52,7 +52,11 @@ def subir_archivo_dropbox(contenido, ruta):
 def cargar_usuarios():
     data = descargar_archivo_dropbox(RUTA_DROPBOX_USUARIOS)
     if data:
-        return json.loads(data.decode('utf-8'))
+        try:
+            return json.loads(data.decode('utf-8'))
+        except json.JSONDecodeError:
+            st.warning("⚠️ El archivo 'Usuarios.json' en Dropbox está corrupto o vacío. Cargando usuario predeterminado.")
+            
     return {
         "admin": {
             "password": hash_password("admin123"),
